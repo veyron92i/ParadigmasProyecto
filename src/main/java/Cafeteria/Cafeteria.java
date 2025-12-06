@@ -1,20 +1,24 @@
-/*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- */
-
 package Cafeteria;
 
-import Cafeteria.Actores.*;
-import Cafeteria.Recursos.*;
+import Cafeteria.Actores.Cliente;
+import Cafeteria.Actores.Cocinero;
+import Cafeteria.Actores.Vendedor;
 import Cafeteria.Control.Paso;
 import Cafeteria.Log.LogCafeteria;
+import Cafeteria.Recursos.AreaConsumicion;
+import Cafeteria.Recursos.Caja;
+import Cafeteria.Recursos.Cocina;
+import Cafeteria.Recursos.Despensa;
+import Cafeteria.Recursos.EntradaCafeteria;
+import Cafeteria.Recursos.Mostrador;
+import Cafeteria.Recursos.Parque;
+import Cafeteria.Recursos.SalaDescanso;
+import Cafeteria.Rmi.EstadoCafeteria;
+import Cafeteria.Rmi.ServidorRMI;
 
-/**
- *
- * @author veyron92i
- */
 public class Cafeteria {
-    // Recursos compartidos
+
+    // ==================== RECURSOS COMPARTIDOS ====================
     private final Despensa despensa;
     private final Mostrador mostrador;
     private final Cocina cocina;
@@ -23,127 +27,176 @@ public class Cafeteria {
     private final SalaDescanso salaDescanso;
     private final Parque parque;
     private final EntradaCafeteria entradaCafeteria;
+
+    // ==================== SERVICIOS ====================
     private final LogCafeteria log;
-    
-    // Control de pausa usando clase Paso (Lock + Condition)
     private final Paso paso;
-    
-    // Constantes según el enunciado
+
+    // ==================== HILOS GENERADORES ====================
+    private Thread generadorClientes;
+    private Thread generadorVendedores;
+    private Thread generadorCocineros;
+
+    // ==================== CONSTANTES ====================
     public static final int NUM_CLIENTES = 8000;
     public static final int NUM_VENDEDORES = 500;
     public static final int NUM_COCINEROS = 500;
-    
+
+    // ==================== ESTADO SIMULACIÓN ====================
+    private volatile int clientesFinalizados = 0;
+
+
+    // ==================== CONSTRUCTOR ====================
     public Cafeteria() {
         this.log = new LogCafeteria("evolucion_cafeteria.txt");
         this.paso = new Paso();
+
         this.despensa = new Despensa(50, 50, log);
         this.mostrador = new Mostrador(5, 20, log);
         this.cocina = new Cocina(100, log);
         this.caja = new Caja(10, log);
         this.areaConsumicion = new AreaConsumicion(30, log);
+
         this.salaDescanso = new SalaDescanso(log);
         this.parque = new Parque(log);
         this.entradaCafeteria = new EntradaCafeteria(20, log);
     }
-    
-    /**
-     * Inicia la simulación creando los hilos generadores de actores.
-     * Los tres generadores se ejecutan de forma concurrente.
-     */
+
+
+    // ==================== INICIO DE LA SIMULACIÓN ====================
     public void iniciar() {
         log.registrar("Sistema de cafetería iniciado");
-        
-        // Crear hilos generadores de actores (concurrentemente)
-        Thread generadorClientes = new Thread(() -> generarClientes(), "GeneradorClientes");
-        Thread generadorVendedores = new Thread(() -> generarVendedores(), "GeneradorVendedores");
-        Thread generadorCocineros = new Thread(() -> generarCocineros(), "GeneradorCocineros");
-        
+
+        try {
+            ServidorRMI.iniciar(this);
+        } catch (Exception e) {
+            log.registrar("Error RMI: " + e.getMessage());
+        }
+        generadorClientes = new Thread(this::generarClientes, "GeneradorClientes");
+        generadorVendedores = new Thread(this::generarVendedores, "GeneradorVendedores");
+        generadorCocineros = new Thread(this::generarCocineros, "GeneradorCocineros");
+
         generadorClientes.start();
         generadorVendedores.start();
         generadorCocineros.start();
     }
-    
-    /**
-     * Genera 8000 clientes con intervalos de 1-3 segundos.
-     */
+
+
+    // ==================== CONTROL DE PAUSA ====================
+    public void verificarPausa() {
+        paso.mirar(); // <-- Método real de tu clase Paso
+    }
+
+
+    // ==================== REGISTRO DE FINALIZACIÓN ====================
+    public synchronized void clienteFinalizado() {
+        clientesFinalizados++;
+        if (clientesFinalizados == NUM_CLIENTES) {
+            log.registrar("Todos los clientes han terminado. Finalizando...");
+            finalizarSimulacion();
+        }
+    }
+
+
+    // ==================== FINALIZACIÓN ====================
+    private void finalizarSimulacion() {
+        if (generadorVendedores != null) generadorVendedores.interrupt();
+        if (generadorCocineros != null) generadorCocineros.interrupt();
+        log.registrar("Simulación finalizada.");
+    }
+
+
+    // =========================================================
+    //                  GENERADORES DE HILOS
+    // =========================================================
+
     private void generarClientes() {
-        for (int i = 1; i <= NUM_CLIENTES; i++) {
-            verificarPausa();
-            String id = String.format("C-%04d", i);
-            Cliente cliente = new Cliente(id, this);
-            cliente.start();
-            log.registrar("Cliente " + id + " es creado");
-            
-            // Intervalo aleatorio entre 1 y 3 segundos
-            dormir(1000 + (int)(Math.random() * 2000));
-        }
-        log.registrar("Generación de clientes completada");
-    }
-    
-    /**
-     * Genera 500 vendedores con intervalos de 0.5-2.5 segundos.
-     */
-    private void generarVendedores() {
-        for (int i = 1; i <= NUM_VENDEDORES; i++) {
-            verificarPausa();
-            String id = String.format("V-%04d", i);
-            Vendedor vendedor = new Vendedor(id, this);
-            vendedor.start();
-            log.registrar("Vendedor " + id + " es creado");
-            
-            // Intervalo aleatorio entre 0.5 y 2.5 segundos
-            dormir(500 + (int)(Math.random() * 2000));
-        }
-        log.registrar("Generación de vendedores completada");
-    }
-    
-    /**
-     * Genera 500 cocineros con intervalos de 1-2 segundos.
-     */
-    private void generarCocineros() {
-        for (int i = 1; i <= NUM_COCINEROS; i++) {
-            verificarPausa();
-            String id = String.format("B-%04d", i);
-            Cocinero cocinero = new Cocinero(id, this);
-            cocinero.start();
-            log.registrar("Cocinero " + id + " es creado");
-            
-            // Intervalo aleatorio entre 1 y 2 segundos
-            dormir(1000 + (int)(Math.random() * 1000));
-        }
-        log.registrar("Generación de cocineros completada");
-    }
-    
-    private void dormir(int ms) {
         try {
-            Thread.sleep(ms);
+            for (int i = 1; i <= NUM_CLIENTES; i++) {
+                verificarPausa();
+                Cliente c = new Cliente(String.valueOf(i), this);
+                c.start();
+                Thread.sleep(1000 + (int)(Math.random() * 2000)); // 1-3 s
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
-    
-    /**
-     * Los hilos llaman a este método para verificar si deben pausarse.
-     */
-    public void verificarPausa() {
-        paso.mirar();
+
+    private void generarVendedores() {
+        try {
+            for (int i = 1; i <= NUM_VENDEDORES; i++) {
+                verificarPausa();
+                Vendedor v = new Vendedor(String.valueOf(i), this);
+                v.start();
+                Thread.sleep(500 + (int)(Math.random() * 2000)); // 0.5–2.5 s
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
-    
-    public void pausar() {
-        paso.cerrar();
-        log.registrar("Sistema PAUSADO");
+
+    private void generarCocineros() {
+        try {
+            for (int i = 1; i <= NUM_COCINEROS; i++) {
+                verificarPausa();
+                Cocinero co = new Cocinero(String.valueOf(i), this);
+                co.start();
+                Thread.sleep(1000 + (int)(Math.random() * 1000)); // 1–2 s
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
-    
-    public void reanudar() {
-        paso.abrir();
-        log.registrar("Sistema REANUDADO");
+
+
+    // =========================================================
+    //                        RMI SNAPSHOT
+    // =========================================================
+    public EstadoCafeteria generarEstado() {
+        return new EstadoCafeteria(
+            // DESPENSA
+            despensa.getUnidadesCafe(),
+            despensa.getUnidadesRosquillas(),
+            despensa.getCocinerosEnDespensa(),
+            despensa.getVendedoresEnDespensa(),
+
+            // MOSTRADOR
+            mostrador.getUnidadesCafe(),
+            mostrador.getUnidadesRosquillas(),
+            mostrador.getClientesEnMostrador(),
+            mostrador.getVendedoresEnMostrador(),
+
+            // COCINA
+            cocina.getCocinerosEnCocina(),
+
+            // CAJA
+            caja.getClientesEnCaja(),
+            caja.getRecaudacionTotal(),
+
+            // ÁREA DE CONSUMICIÓN
+            areaConsumicion.getClientesEnArea(),
+
+            // ENTRADA
+            entradaCafeteria.getClientesEnEntrada(),
+            entradaCafeteria.getClientesEnCola(),
+
+            // PARQUE
+            parque.getClientesEnParque(),
+
+            // SALA DE DESCANSO
+            salaDescanso.getCocinerosEnSala(),
+            salaDescanso.getVendedoresEnSala(),
+
+            // SIMULACIÓN
+            clientesFinalizados
+        );
     }
-    
-    public boolean isPausado() {
-        return paso.estaCerrado();
-    }
-    
-    // Getters para recursos
+
+
+    // =========================================================
+    //                      GETTERS
+    // =========================================================
     public Despensa getDespensa() { return despensa; }
     public Mostrador getMostrador() { return mostrador; }
     public Cocina getCocina() { return cocina; }
@@ -153,5 +206,6 @@ public class Cafeteria {
     public Parque getParque() { return parque; }
     public EntradaCafeteria getEntradaCafeteria() { return entradaCafeteria; }
     public LogCafeteria getLog() { return log; }
-    
+    public Paso getPaso() { return paso; }
+
 }
